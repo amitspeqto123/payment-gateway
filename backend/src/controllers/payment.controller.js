@@ -1,6 +1,9 @@
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const Order = require("../models/order.model");
+const payPalClient = require("../utils/payPalClient");
+const checkoutNodeJssdk = require("@paypal/checkout-server-sdk");
+const stripe = require("../utils/stripe")
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -55,7 +58,6 @@ const createPaymentOrder = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 // Manually verify payments
 const verifyPayment = async (req, res) => {
   try {
@@ -85,9 +87,7 @@ const verifyPayment = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 // Automatic Razorpay update status
-
 const webhookHandler = async (req, res) => {
   try {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -129,8 +129,132 @@ const webhookHandler = async (req, res) => {
     res.status(500).json({ status: "error" });
   }
 };
+
+// paypal integraation
+const createPayPalOrder = async (req, res) => {
+  try {
+    const { amount, orderId } = req.body;
+
+    const request = new checkoutNodeJssdk.orders.OrdersCreateRequest();
+    request.prefer("return=representation");
+    request.requestBody({
+      intent: "CAPTURE",
+      purchase_units: [
+        {
+          amount: {
+            currency_code: "USD",
+            value: (amount / 100).toFixed(2), // PayPal me dollars
+          },
+        },
+      ],
+      application_context: {
+        brand_name: "Your Store",
+        landing_page: "NO_PREFERENCE",
+        user_action: "PAY_NOW",
+        return_url: `https://yourfrontend.com/paypal-success?orderId=${orderId}`,
+        cancel_url: `https://yourfrontend.com/paypal-cancel?orderId=${orderId}`,
+      },
+    });
+
+    const order = await payPalClient.execute(request);
+    res.status(200).json(order.result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+const capturePayPalPayment = async (req, res) => {
+  try {
+    const { paypalOrderId, localOrderId } = req.body;
+
+    const request = new checkoutNodeJssdk.orders.OrdersCaptureRequest(
+      paypalOrderId,
+    );
+    request.requestBody({});
+    const capture = await payPalClient.execute(request);
+
+    if (capture.statusCode === 201 || capture.statusCode === 200) {
+      // DB update
+      await Order.findByIdAndUpdate(localOrderId, {
+        status: "paid",
+        paypalPaymentId:
+          capture.result.purchase_units[0].payments.captures[0].id,
+        gateway: "paypal",
+      });
+
+      res.status(200).json({ message: "Payment successful" });
+    } else {
+      res.status(400).json({ message: "Payment failed" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Stripe integration
+const createStripeCheckoutSession = async (req, res) => {
+  try {
+    const { orderId, amount } = req.body;
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "inr",
+            product_data: {
+              name: "Order Payment",
+            },
+            unit_amount: amount, // amount in paisa
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `http://localhost:5173/stripe-success?orderId=${orderId}`,
+      cancel_url: `http://localhost:5173/stripe-cancel?orderId=${orderId}`,
+    });
+
+    res.status(200).json({ url: session.url });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: error.message });
+  }
+};
+const stripeWebhook = async (req, res) => {
+  const stripe = require("../config/stripe");
+
+  const sig = req.headers["stripe-signature"];
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+
+    const orderId = session.success_url.split("orderId=")[1];
+
+    // DB me order status update karo
+    console.log("Payment Successful for Order:", orderId);
+  }
+
+  res.json({ received: true });
+};
+
 module.exports = {
   createPaymentOrder,
   verifyPayment,
   webhookHandler,
+  createPayPalOrder,
+  capturePayPalPayment,
+  createStripeCheckoutSession,
+  stripeWebhook,
 };

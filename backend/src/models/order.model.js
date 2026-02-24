@@ -32,6 +32,16 @@ const orderSchema = new mongoose.Schema(
     razorpayPaymentId: {
       type: String,
     },
+    paypalOrderId: {
+      type: String,
+    },
+    paypalPaymentId: {
+      type: String,
+    },
+    gateway: {
+      type: String,
+      enum: ["razorpay", "paypal"],
+    },
   },
   { timestamps: true }
 );
