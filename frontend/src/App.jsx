@@ -1,5 +1,5 @@
 import React from "react";
-//import PaymentButton from "./components/PaymentButton";
+import PaymentButton from "./components/PaymentButton";
 import PayPalButton from "./components/PayPallButton";
 import PayPalSuccess from "./components/PayPalSuccess";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
@@ -12,13 +12,14 @@ function App() {
     totalAmount: 160000,
   };
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<StripeButton order={testOrder} />} />
+    // <BrowserRouter>
+    //   <Routes>
+    //     <Route path="/" element={<StripeButton order={testOrder} />} />
 
-        <Route path="/paypal-success" element={<StripeSuccess />} />
-      </Routes>
-    </BrowserRouter>
+    //     <Route path="/paypal-success" element={<StripeSuccess />} />
+    //   </Routes>
+    // </BrowserRouter>
+    <PaymentButton/>
   );
 }
 
